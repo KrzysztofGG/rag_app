@@ -4,7 +4,7 @@
 - to check unresolved queries, use other endpoint or enter container using `docker exec -it {rag_app-fastapi CONTAINER ID} bash` and `cat memory/unresolved_queries.json`
 
 ### ENCOUNTERED ERRORS
-- Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint ollama (3383e7a3034f2b4748c23133ad13395472b812f9424860753529e1abae9ef5af): failed to bind host port for 0.0.0.0:11434:172.23.0.4:11434/tcp: address already in use
+- Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint ollama (3383e7a3034f2b4748c23133ad13395472b812f9424860753529e1abae9ef5af): failed to bind host port for 0.0.0.0:11434:172.23.0.4:11434/tcp: address already in use \
 FIX: `sudo systemctl stop ollama`
 
 ### EXAMPLE
