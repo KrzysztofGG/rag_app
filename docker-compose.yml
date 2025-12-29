@@ -1,0 +1,53 @@
+version: "3.9"
+services:
+  elasticsearch:
+    build: ./elasticsearch  # points to your Dockerfile
+    ports:
+      - "9200:9200"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_storage:/root/.ollama
+
+  fastapi:
+    build: ./rag  # directory with your FastAPI Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      elasticsearch:
+            condition: service_healthy  # This is the magic line
+      qdrant:
+        condition: service_started
+      ollama:
+        condition: service_started
+    command: fastapi run main.py --port 8000
+    environment:
+      - ES_URL=http://elasticsearch:9200
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_HOST=http://ollama:11434
+volumes:
+  es_data:
+  ollama_storage:

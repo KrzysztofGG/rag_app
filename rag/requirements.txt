@@ -1,0 +1,8 @@
+elasticsearch~=8.17.0
+numpy~=2.2.6
+ollama~=0.4.4
+python-dotenv~=1.0.1
+qdrant-client~=1.12.1
+sentence-transformers~=3.3.1
+spacy~=3.8.11
+fastapi[standard]
