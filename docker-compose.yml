@@ -1,7 +1,7 @@
 version: "3.9"
 services:
   elasticsearch:
-    build: ./elasticsearch  # points to your Dockerfile
+    build: ./elasticsearch
     ports:
       - "9200:9200"
     environment:
@@ -33,12 +33,12 @@ services:
       - ollama_storage:/root/.ollama
 
   fastapi:
-    build: ./rag  # directory with your FastAPI Dockerfile
+    build: ./rag 
     ports:
       - "8000:8000"
     depends_on:
       elasticsearch:
-            condition: service_healthy  # This is the magic line
+            condition: service_healthy
       qdrant:
         condition: service_started
       ollama:
