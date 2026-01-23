@@ -14,6 +14,92 @@ Process can be defined by these steps:
 - If nothing else can be done and answer still invalid, return to unresolved memory
 - If answer is evaluated to be valid, return it
 
+### In depth schema of whole process
+```mermaid
+flowchart TD
+    Start([User Query]) --> GenResult[Generate empty result dict]
+    GenResult --> Clarify{Clarification:<br/>needs_clarification?}
+    
+    Clarify -->|YES| ShowInterp[Show interpretations<br/>and select first]
+    Clarify -->|NO| UseOriginal[Use original query]
+    
+    ShowInterp --> FinalQuery[final_user_input =<br/>query + interpretation]
+    UseOriginal --> FinalQuery
+    
+    FinalQuery --> Decomp{Decomposition:<br/>enable_decomposition?}
+    
+    Decomp -->|YES| DecompQuery[decompose_query<br/>generate sub_questions]
+    Decomp -->|NO| SingleQuery[queries = user_input]
+    
+    DecompQuery --> BuildQueries[queries_to_process =<br/>user_input + sub_questions]
+    SingleQuery --> BuildQueries
+    
+    BuildQueries --> ExtractMeta[extract_metadata_from_query<br/>NER: entities, places, dates/years]
+    
+    ExtractMeta --> LoopQueries[For each query in queries_to_process]
+    
+    LoopQueries --> MakeQueries[make_queries:<br/>qdrant_query + es_query]
+    MakeQueries --> Embed[embed: generate vector]
+    
+    Embed --> QdrantSearch[search_qdrant_enhanced<br/>with filters: years]
+    Embed --> ESSearch[search_es_enhanced<br/>with boosts: entities, places, years]
+    
+    QdrantSearch --> Weights[choose_weights<br/>based on analyze_query]
+    ESSearch --> Weights
+    
+    Weights --> RRF[rrf_fusion_weighted<br/>combine results with weights<br/>k=15]
+    
+    RRF --> ChunkDocs[chunk_document<br/>max_tokens=200]
+    ChunkDocs --> AddScores[Add chunks + scores<br/>to all_chunks_with_scores]
+    
+    AddScores --> NextQuery{More queries?}
+    NextQuery -->|YES| LoopQueries
+    NextQuery -->|NO| Deduplicate
+    
+    Deduplicate[Deduplicate chunks:<br/>keep max score] --> SortChunks[Sort chunks<br/>descending by score]
+    
+    SortChunks --> Filter[filter_retrieved_with_stats<br/>min_tokens=20<br/>cosine_sim >= 0.75<br/>max_docs=10]
+    
+    Filter --> TokenLimit[Token limit:<br/>max_tokens_len=350<br/>iteratively add chunks]
+    
+    TokenLimit --> AskModel[ask_model:<br/>build_prompt + ollama.chat<br/>temp=0.6]
+    
+    AskModel --> ExtractAnswer[Extract answer<br/>and count_citations]
+    
+    ExtractAnswer --> IsValid{is_answer_valid?}
+    
+    IsValid -->|YES| Success([Return result])
+    IsValid -->|NO| RetryLoop{Retry strategies}
+    
+    RetryLoop -->|modify_prompt| NextPrompt{prompt_idx + 1<br/>< len prompts?}
+    NextPrompt -->|YES| UseNextPrompt[Use next prompt<br/>and retry ask_model]
+    NextPrompt -->|NO| RemoveStrategy1[Remove 'modify_prompt'<br/>from retry_strategies]
+    
+    UseNextPrompt --> IsValid
+    RemoveStrategy1 --> RetryLoop
+    
+    RetryLoop -->|change_interpretation| NextInterp{interp_idx + 1<br/>< len interpretations?}
+    NextInterp -->|YES| UseNextInterp[Use next interpretation<br/>and restart full RAG]
+    NextInterp -->|NO| RemoveStrategy2[Remove 'change_interpretation'<br/>from retry_strategies]
+    
+    UseNextInterp --> BuildQueries
+    RemoveStrategy2 --> RetryLoop
+    
+    RetryLoop -->|save_to_memory| SaveMem[memory.add_query<br/>Save query]
+    SaveMem --> ReturnPartial([Return result<br/>with partial answer])
+    
+    RetryLoop -->|unknown| SaveUnknown[memory.add_query<br/>Unknown strategy]
+    SaveUnknown --> ReturnPartial
+    
+    style Start fill:#2d5f2d,stroke:#4a8f4a,color:#fff
+    style Success fill:#2d5f2d,stroke:#4a8f4a,color:#fff
+    style ReturnPartial fill:#8b3a3a,stroke:#c55,color:#fff
+    style IsValid fill:#b8860b,stroke:#daa520,color:#fff
+    style RetryLoop fill:#4a5f8f,stroke:#6a8fcc,color:#fff
+    style Filter fill:#8b4789,stroke:#b56fb5,color:#fff
+    style RRF fill:#6a4c93,stroke:#9370db,color:#fff
+```
+
 ### File structure
 ```
 ├── elasticsearch

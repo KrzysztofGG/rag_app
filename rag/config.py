@@ -26,6 +26,25 @@ qdrant_url = os.getenv("QDRANT_URL", "http://qdrant:6333")
 ollama_host = os.getenv("OLLAMA_HOST", "http://ollama:11434")
 
 PROMPT_CORES_LIST = [
+    """
+Odpowiedz na pytanie na podstawie poniższych fragmentów tekstu.
+
+WAŻNE ZASADY:
+1. Używaj TYLKO informacji z podanych fragmentów
+2. Jeśli fragment zawiera odpowiedź, ZAWSZE ją podaj - nie pisz "BRAK ODPOWIEDZI"
+3. Format odpowiedzi: [Twoja odpowiedź], co potwierdza fragment nr [X]: "[krótki cytat]"
+4. TYLKO gdy fragmenty kompletnie nie zawierają żadnej informacji związanej z pytaniem, wtedy napisz: "BRAK ODPOWIEDZI"
+
+UWAGA: Jeśli fragment zawiera choć częściową informację, odpowiedz na podstawie tego co masz. 
+Lepiej częściowa odpowiedź niż brak odpowiedzi.
+
+Przykłady POPRAWNYCH odpowiedzi:
+- "Jan Kowalski był ministrem w 2020 roku, co potwierdza fragment nr 2: 'objął stanowisko ministra'"
+- "Budżet wynosił około 5 milionów, co wynika z fragmentu nr 1: 'planowane wydatki to 5 mln'"
+
+Przykład NIEPOPRAWNEJ odpowiedzi:
+- "BRAK ODPOWIEDZI" (gdy fragmenty faktycznie coś zawierają, nawet ogólne informacje)
+""",
     """Twoim zadaniem jest odpowiedzieć na pytanie WYŁĄCZNIE na podstawie fragmentów poniżej.
 
 Zasady:

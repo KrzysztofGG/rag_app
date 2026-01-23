@@ -1,5 +1,6 @@
 import numpy as np
 from typing import List
+from sentence_transformers import SentenceTransformer
 
 from common import tokenize_regex, embed
 
@@ -8,6 +9,7 @@ def filter_retrieved_with_stats(
         query: str, 
         query_vec: np.ndarray, 
         f: dict,  
+        transformer_model: SentenceTransformer,
         min_tokens: int = 15, 
         max_docs: int = 5):
     query_tokens = {t.lower() for t in tokenize_regex(query) if len(t) > 2}
@@ -36,11 +38,11 @@ def filter_retrieved_with_stats(
         if f["is_acronym"] or f["has_id"] or f["has_number"] or f["has_year"] or f["has_filter"]:
             if overlap == 0:
                 if text not in doc_vec_cache:
-                    doc_vec_cache[text] = embed(text)
+                    doc_vec_cache[text] = embed(text, transformer_model)
 
                 sim = cosine_similarity(query_vec, doc_vec_cache[text])
                 
-                if sim < 0.75:
+                if sim < 0.55:
                     stats["rejected_overlap"] += 1
                     continue
 

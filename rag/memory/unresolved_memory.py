@@ -21,10 +21,14 @@ class UnresolvedQueriesMemory:
         with open(self.storage_path, 'w') as f:
             json.dump(self.queries, f, ensure_ascii=True, indent=2)
 
-    def add_query(self, query: str):
+    def add_query(self, query: str, metadata: Dict):
         query_entry = {
             "id": self.next_id,
             "query": query,
+            "entities_hint": metadata["entities"],
+            "years_hint": metadata["years"],
+            "places_hint": metadata["places"],
+            "retry_count": 0,
             "status": "pending",
             "timestamp": datetime.now().isoformat()
         }
@@ -38,6 +42,20 @@ class UnresolvedQueriesMemory:
     
     def get_pending_queries(self):
         return [q for q in self.queries if q["status"] == "pending"]
+    
+    def get_query_by_id(self, query_id: int):
+        for query in self.queries:
+            if query_id == query['id']:
+                return query
+        return None
+    
+    def increment_retry_count(self, query_id: int):
+        for query in self.queries:
+            if query_id == query['id']:
+                query['retry_count'] = query.get('retry_count', 0) + 1
+                self._save_queries()
+                return True
+        return False
     
     def mark_as_resolved(self, query_id: str):
         for query in self.queries:
@@ -55,7 +73,8 @@ class UnresolvedQueriesMemory:
         return {
             "total": len(self.queries),
             "pending": len(pending),
-            "resolved": len(resolved)
+            "resolved": len(resolved),
+            "avg_retry_count": sum(q.get("retry_count", 0) for q in pending) / max(len(pending), 1)
         }
     
     def clear_resolved(self):

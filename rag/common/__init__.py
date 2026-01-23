@@ -19,6 +19,11 @@ from .data import (
     populate_collection
 )
 
+from .metadata import (
+    extract_metadata_from_query,
+    hybrid_date_extraction
+)
+
 __all__ = [
     "extract_keywords_lemmatized",
     "make_queries",
@@ -35,4 +40,6 @@ __all__ = [
     "populate_index",
     "create_qdrant_collection",
     "populate_collection",
+    "extract_metadata_from_query",
+    "hybrid_date_extraction",
 ]

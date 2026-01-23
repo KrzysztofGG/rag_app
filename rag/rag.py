@@ -14,8 +14,8 @@ from reasoning.filtering import filter_retrieved_with_stats
 from reasoning.clarification import *
 from reasoning.prompt import ask_model
 
-from retrieval.elastic import search_es
-from retrieval.qdrant import search_qdrant
+from retrieval.elastic import search_es_enhanced
+from retrieval.qdrant import search_qdrant_enhanced
 from retrieval.fusion import rrf_fusion_weighted
 
 from memory.unresolved_memory import UnresolvedQueriesMemory
@@ -33,6 +33,8 @@ class RAG:
             qdrant_collection_name: str = "culturax",
             es_index_name: str = "culturax",
             enable_decomposition: bool = True,
+            es_client = None,
+            qdrant_client = None,
             es_url: str = "http://localhost:9200",
             qdrant_url: str = "http://localhost:6333",
             ollama_host: str = "http://ollama:11434"
@@ -46,8 +48,15 @@ class RAG:
         self.enable_decomposition = enable_decomposition
         self.ollama_model_name = ollama_model_name
 
-        self.es_client = Elasticsearch(es_url)
-        self.qdrant_client = QdrantClient(qdrant_url)
+        if es_client:
+            self.es_client = es_client
+        else:
+            self.es_client = Elasticsearch(es_url)
+        
+        if qdrant_client:
+            self.qdrant_client = qdrant_client
+        else:
+            self.qdrant_client = QdrantClient(qdrant_url)
         self.nlp = spacy.load(spacy_model_name)
         self.ollama_client = Client(ollama_host)
 
@@ -56,9 +65,9 @@ class RAG:
 
     def _initialize_engines(self, data_path):
         create_es_index(self.es_index_name, self.es_client)
-        populate_index(data_path, self.es_index_name, self.es_client)
+        populate_index(data_path, self.es_index_name, self.es_client, self.nlp)
         create_qdrant_collection(self.qdrant_collection_name, self.qdrant_client)
-        populate_collection(data_path, self.qdrant_collection_name, self.qdrant_client)
+        populate_collection(data_path, self.qdrant_collection_name, self.qdrant_client, self.nlp)
     
     def _ensure_model_exists(self):
         current_models = self.ollama_client.list()
@@ -70,15 +79,16 @@ class RAG:
     def rag_query_enhanced(
         self,
         user_input: str,
-        result: Dict,
-        prompt_id: int,
-        max_chunk_tokens=200,
-        max_tokens_len=250,
+        result: Dict = None,
+        prompt_id: int = 0,
+        max_chunk_tokens=250,
+        max_tokens_len=400,
     ) -> Dict:
-        """
-        Rozszerzona wersja RAG z dekompozycją i clarification.
-        """
-        features = analyze_query(user_input)
+
+        if result == None:
+            result = self.generate_result(user_input)
+
+        features = analyze_query(user_input, self.nlp)
 
         # 2. Dekompozycja zapytania 
         if self.enable_decomposition:
@@ -102,6 +112,8 @@ class RAG:
         
         all_chunks_with_scores = []
         user_input_vec = None
+
+        query_metadata = extract_metadata_from_query(user_input, self.nlp)
         
         for i, query in enumerate(queries_to_process):
             qdrant_query, es_query = make_queries(query, self.nlp)
@@ -110,9 +122,16 @@ class RAG:
             if i == 0:
                 user_input_vec = vec
 
-            ids_qdrant, texts_qdrant = search_qdrant(vec, self.qdrant_client, self.qdrant_collection_name)
-            ids_es, texts_es = search_es(es_query, self.es_client, self.es_index_name)
-            
+            ids_qdrant, texts_qdrant = search_qdrant_enhanced(vec, 
+                                                              self.qdrant_client, 
+                                                              self.qdrant_collection_name, 
+                                                              query_metadata)
+            ids_es, texts_es = search_es_enhanced(es_query, 
+                                                  self.es_client,
+                                                  self.es_index_name,
+                                                  query_metadata)
+
+
             weights = choose_weights(features)
             
             fused_results = rrf_fusion_weighted(
@@ -126,7 +145,7 @@ class RAG:
             )
             
             for text, score in fused_results:
-                chunks = chunk_document(text, self.nlp, max_tokens=max_chunk_tokens)
+                chunks = chunk_document(text, max_tokens=max_chunk_tokens)
                 for chunk in chunks:
                     all_chunks_with_scores.append((chunk, score))
 
@@ -149,6 +168,7 @@ class RAG:
             user_input,
             user_input_vec,
             features,
+            self.transformer_model,
             max_docs=10
         )
         
@@ -158,9 +178,14 @@ class RAG:
 
         for chunk in filtered_chunks:
             tokens = tokenize_regex(chunk)
-            if used_len + len(tokens) <= max_tokens_len:
+            chunk_len = len(tokens)
+            
+            if used_len + chunk_len <= max_tokens_len:
                 used_chunks.append(chunk)
-                used_len += len(tokens)
+                used_len += chunk_len
+            elif len(used_chunks) < 3:  # Minimum 3 chunki zawsze
+                used_chunks.append(chunk)
+                used_len += chunk_len
             else:
                 break
         
@@ -175,6 +200,7 @@ class RAG:
 
         result["answer"] = response["message"]["content"]
         result["stats"]["citations"] = count_citations(result["answer"])
+        result['metadata'] = query_metadata
 
         print(f'[INFO] model answer: {result["answer"]}')
         
@@ -185,7 +211,7 @@ class RAG:
             user_input: str,
             retry_strategies: List[str],
             max_chunk_tokens=200,
-            max_tokens_len=250
+            max_tokens_len=250,
         ) -> Dict:
             
             result = self.generate_result(user_input)
@@ -202,7 +228,8 @@ class RAG:
                                         result,
                                         prompt_core_idx,
                                         max_chunk_tokens,
-                                        max_tokens_len)
+                                        max_tokens_len,
+                                        )
             
             is_answer_valid = self.evaluate_answer(result["answer"], result["stats"], result["chunks"])
 
@@ -222,6 +249,7 @@ class RAG:
                     else:
                         print(f"[WARN] Brak innych promptów do wykorzystania")
                         retry_strategies.remove("modify_prompt")
+                        prompt_core_idx = 0
                         continue
                 if "change_interpretation" in retry_strategies:
                     if interpretation_idx + 1 < len(interpretations):
@@ -242,11 +270,11 @@ class RAG:
                         continue
                 if "save_to_memory" in retry_strategies:
                     print(f"[INFO] Błąd w odpowiedzi, zapis pytania do pamięci")
-                    self.memory.add_query(user_input)
+                    self.memory.add_query(user_input, result['metadata'])
                     return result
                 else:
                     print(f"[WARN] Nieznana strategia rozwiązania błędu, zapis pytania do pamięci")
-                    self.memory.add_query(user_input)
+                    self.memory.add_query(user_input, result['metadata'])
                     return result
             return result
         
